@@ -21,7 +21,7 @@ type ExcelReadSheetArguments struct {
 }
 
 var excelReadSheetArgumentsSchema = z.Struct(z.Shape{
-	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
+	"fileAbsolutePath": z.String().Test(FilePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"range":            z.String(),
 	"showFormula":      z.Bool().Default(false),
@@ -33,7 +33,7 @@ func AddExcelReadSheetTool(server *server.MCPServer) {
 		mcp.WithDescription("Read values from Excel sheet with pagination."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
-			mcp.Description("Absolute path to the Excel file"),
+			mcp.Description("Absolute path to the Excel file, or a path relative to the server workspace directory. A relative path is the one to use when the server does not share a filesystem with you."),
 		),
 		mcp.WithString("sheetName",
 			mcp.Required(),
@@ -56,7 +56,11 @@ func handleReadSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	if issues := excelReadSheetArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return readSheet(args.FileAbsolutePath, args.SheetName, args.Range, args.ShowFormula, args.ShowStyle)
+	filePath, errResult := ResolveFilePath(args.FileAbsolutePath)
+	if errResult != nil {
+		return errResult, nil
+	}
+	return readSheet(filePath, args.SheetName, args.Range, args.ShowFormula, args.ShowStyle)
 }
 
 func readSheet(fileAbsolutePath string, sheetName string, valueRange string, showFormula bool, showStyle bool) (*mcp.CallToolResult, error) {

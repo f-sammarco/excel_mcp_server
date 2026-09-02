@@ -4,7 +4,6 @@ import (
 	"crypto/md5"
 	"fmt"
 	"html"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +12,10 @@ import (
 	"github.com/xuri/excelize/v2"
 
 	"github.com/negokaz/excel-mcp-server/internal/excel"
+	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
+	"github.com/negokaz/excel-mcp-server/internal/workspace"
+
+	"github.com/mark3labs/mcp-go/mcp"
 
 	z "github.com/Oudwins/zog"
 )
@@ -429,12 +432,29 @@ func createHTMLTableWithStyle(startCol int, startRow int, endCol int, endRow int
 	return &finalResultStr, nil
 }
 
-func AbsolutePathTest() z.Test[*string] {
+// FilePathTest validates the fileAbsolutePath argument of a tool.
+//
+// An absolute path is still the documented form, but a relative path is accepted
+// too and resolved inside the workspace directory: a client talking over HTTP
+// cannot know which absolute paths exist on the server, and a workspace-relative
+// path is the only kind it can name safely. See internal/workspace.
+func FilePathTest() z.Test[*string] {
 	return z.Test[*string]{
 		Func: func(path *string, ctx z.Ctx) {
-			if !filepath.IsAbs(*path) {
-				ctx.AddIssue(ctx.Issue().SetMessage(fmt.Sprintf("Path '%s' is not absolute", *path)))
+			if strings.TrimSpace(*path) == "" {
+				ctx.AddIssue(ctx.Issue().SetMessage("Path is empty"))
 			}
 		},
 	}
+}
+
+// ResolveFilePath maps a path argument onto this machine's filesystem. On
+// failure it returns the tool result to hand straight back to the caller, so a
+// path the server refuses reads as an invalid argument rather than a crash.
+func ResolveFilePath(path string) (string, *mcp.CallToolResult) {
+	resolved, err := workspace.Resolve(path)
+	if err != nil {
+		return "", imcp.NewToolResultInvalidArgumentError(err.Error())
+	}
+	return resolved, nil
 }

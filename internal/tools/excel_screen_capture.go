@@ -18,7 +18,7 @@ type ExcelScreenCaptureArguments struct {
 }
 
 var ExcelScreenCaptureArgumentsSchema = z.Struct(z.Shape{
-	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
+	"fileAbsolutePath": z.String().Test(FilePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"range":            z.String(),
 })
@@ -28,7 +28,7 @@ func AddExcelScreenCaptureTool(server *server.MCPServer) {
 		mcp.WithDescription("[Windows only] Take a screenshot of the Excel sheet with pagination."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
-			mcp.Description("Absolute path to the Excel file"),
+			mcp.Description("Absolute path to the Excel file, or a path relative to the server workspace directory. A relative path is the one to use when the server does not share a filesystem with you."),
 		),
 		mcp.WithString("sheetName",
 			mcp.Required(),
@@ -46,7 +46,11 @@ func handleScreenCapture(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return readSheetImage(args.FileAbsolutePath, args.SheetName, args.Range)
+	filePath, errResult := ResolveFilePath(args.FileAbsolutePath)
+	if errResult != nil {
+		return errResult, nil
+	}
+	return readSheetImage(filePath, args.SheetName, args.Range)
 }
 
 func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string) (*mcp.CallToolResult, error) {

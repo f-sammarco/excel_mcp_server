@@ -18,22 +18,24 @@ type ExcelWriteToSheetArguments struct {
 	NewSheet         bool       `zog:"newSheet"`
 	Range            string     `zog:"range"`
 	Values           [][]string `zog:"values"`
+	AttachFile       bool       `zog:"attachFile"`
 }
 
 var excelWriteToSheetArgumentsSchema = z.Struct(z.Shape{
-	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
+	"fileAbsolutePath": z.String().Test(FilePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"newSheet":         z.Bool().Required().Default(false),
 	"range":            z.String().Required(),
 	"values":           z.Slice(z.Slice(z.String())).Required(),
+	"attachFile":       z.Bool().Default(false),
 })
 
 func AddExcelWriteToSheetTool(server *server.MCPServer) {
 	server.AddTool(mcp.NewTool("excel_write_to_sheet",
-		mcp.WithDescription("Write values to the Excel sheet"),
+		mcp.WithDescription("Write values to the Excel sheet. The workbook is created if the file does not exist yet, so a relative path plus attachFile builds a new workbook from scratch and returns it as a download."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
-			mcp.Description("Absolute path to the Excel file"),
+			mcp.Description("Absolute path to the Excel file, or a path relative to the server workspace directory. A relative path is the one to use when the server does not share a filesystem with you."),
 		),
 		mcp.WithString("sheetName",
 			mcp.Required(),
@@ -70,6 +72,9 @@ func AddExcelWriteToSheetTool(server *server.MCPServer) {
 				},
 			}),
 		),
+		mcp.WithBoolean("attachFile",
+			mcp.Description("Attach the saved workbook to the result as a downloadable binary attachment (base64 blob resource). Set true on the last write of a file the caller must be able to download; the file must be 20 MB or smaller."),
+		),
 	), handleWriteToSheet)
 }
 
@@ -94,11 +99,18 @@ func handleWriteToSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		values[i] = value
 	}
 
-	return writeSheet(args.FileAbsolutePath, args.SheetName, args.NewSheet, args.Range, values)
+	filePath, errResult := ResolveFilePath(args.FileAbsolutePath)
+	if errResult != nil {
+		return errResult, nil
+	}
+	return writeSheet(filePath, args.SheetName, args.NewSheet, args.Range, values, args.AttachFile)
 }
 
-func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeStr string, values [][]any) (*mcp.CallToolResult, error) {
-	workbook, closeFn, err := excel.OpenFile(fileAbsolutePath)
+func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeStr string, values [][]any, attachFile bool) (*mcp.CallToolResult, error) {
+	// A missing file is created rather than refused: writing is how a workbook
+	// gets built from scratch, and with a workspace-relative path the caller has
+	// no other way to bring one into existence.
+	workbook, closeFn, created, err := excel.OpenOrCreateFile(fileAbsolutePath, sheetName)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +127,8 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of rows in data (%d) does not match range size (%d)", len(values), rangeRowSize)), nil
 	}
 
-	if newSheet {
+	// A file created just now already holds sheetName as its only sheet.
+	if newSheet && !created {
 		if err := workbook.CreateNewSheet(sheetName); err != nil {
 			return nil, err
 		}
@@ -173,13 +186,18 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 	html += "<h2>Metadata</h2>\n"
 	html += "<ul>\n"
 	html += fmt.Sprintf("<li>backend: %s</li>\n", workbook.GetBackendName())
+	html += fmt.Sprintf("<li>file path: %s</li>\n", fileAbsolutePath)
 	html += fmt.Sprintf("<li>sheet name: %s</li>\n", sheetName)
 	html += fmt.Sprintf("<li>read range: %s</li>\n", rangeStr)
 	html += "</ul>\n"
 	html += "<h2>Notice</h2>\n"
 	html += "<p>Values wrote successfully.</p>\n"
 
-	return mcp.NewToolResultText(html), nil
+	result := mcp.NewToolResultText(html)
+	if attachFile {
+		result = AttachWorkbookFile(result, fileAbsolutePath)
+	}
+	return result, nil
 }
 
 func isFormula(value string) bool {

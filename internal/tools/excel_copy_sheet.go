@@ -29,7 +29,7 @@ func AddExcelCopySheetTool(server *server.MCPServer) {
 		mcp.WithDescription("Copy existing sheet to a new sheet"),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
-			mcp.Description("Absolute path to the Excel file"),
+			mcp.Description("Absolute path to the Excel file, or a path relative to the server workspace directory. A relative path is the one to use when the server does not share a filesystem with you."),
 		),
 		mcp.WithString("srcSheetName",
 			mcp.Required(),
@@ -47,7 +47,11 @@ func handleCopySheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	if issues := excelCopySheetArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return copySheet(args.FileAbsolutePath, args.SrcSheetName, args.DstSheetName)
+	filePath, errResult := ResolveFilePath(args.FileAbsolutePath)
+	if errResult != nil {
+		return errResult, nil
+	}
+	return copySheet(filePath, args.SrcSheetName, args.DstSheetName)
 }
 
 func copySheet(fileAbsolutePath string, srcSheetName string, dstSheetName string) (*mcp.CallToolResult, error) {

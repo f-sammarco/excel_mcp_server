@@ -70,6 +70,41 @@ For other platforms:
 }
 ```
 
+### Installing via Docker
+
+Build the image from the repository:
+
+```bash
+docker build -t excel-mcp-server .
+```
+
+Then add the following configuration to the MCP servers configuration.
+Mount the directory containing your Excel files so the server can access them:
+
+```json
+{
+    "mcpServers": {
+        "excel": {
+            "command": "docker",
+            "args": [
+                "run", "--rm", "-i",
+                "-v", "/path/to/excel/files:/path/to/excel/files",
+                "-e", "EXCEL_MCP_PAGING_CELLS_LIMIT",
+                "excel-mcp-server"
+            ],
+            "env": {
+                "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
+            }
+        }
+    }
+}
+```
+
+Use the same path inside and outside the container so `fileAbsolutePath` arguments resolve.
+
+> [!NOTE]
+> The Docker image is Linux-based, so Windows-only features (live editing, screen capture) are not available.
+
 ### Installing via Smithery
 
 To install Excel MCP Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@negokaz/excel-mcp-server):
@@ -77,6 +112,41 @@ To install Excel MCP Server for Claude Desktop automatically via [Smithery](http
 ```bash
 npx -y @smithery/cli install @negokaz/excel-mcp-server --client claude
 ```
+
+<h2 id="transports">Transports</h2>
+
+The server speaks stdio by default: the client launches the binary and talks to it over its standard input and output.
+
+Setting `EXCEL_MCP_TRANSPORT=http` switches it to the MCP **Streamable HTTP** transport instead, so a client can connect to a long-running server over the network:
+
+```bash
+EXCEL_MCP_TRANSPORT=http EXCEL_MCP_HTTP_ADDR=localhost:8000 excel-mcp-server
+```
+
+The server then serves one endpoint (`/mcp` by default) handling `POST` for requests, `GET` for the server-to-client SSE stream, and `DELETE` to end a session. Point the client at it:
+
+```json
+{
+    "mcpServers": {
+        "excel": {
+            "url": "http://localhost:8000/mcp"
+        }
+    }
+}
+```
+
+> [!WARNING]
+> The HTTP transport has no authentication of its own, which is why it listens on loopback by default. Put an authenticating proxy in front of it before exposing it beyond the host.
+
+### File paths over HTTP
+
+Over stdio the client and the server share a filesystem, so `fileAbsolutePath` means the same thing on both sides. Over HTTP it does not, so the server keeps a **workspace directory** — a temporary folder it owns (`<temp>/excel-mcp-server` unless `EXCEL_MCP_WORKSPACE_DIR` says otherwise):
+
+- A **relative** path is resolved inside the workspace directory, and missing parent directories are created. This works on every transport, and it is the only kind of path a remote client can name safely.
+- Writing to a path that does not exist yet **creates the workbook**, so a client can build one from scratch — `excel_write_to_sheet` with a relative path and `attachFile: true` writes into the workspace and hands the file back as a download, with no shared filesystem involved.
+- An **absolute** path outside the workspace is refused under the HTTP transport, and accepted under stdio. `EXCEL_MCP_RESTRICT_TO_WORKSPACE` overrides that default in either direction.
+
+The workspace is a temporary directory: treat what it holds as scratch, and take the results out as attachments.
 
 <h2 id="tools">Tools</h2>
 
@@ -86,7 +156,7 @@ List all sheet information of specified Excel file.
 
 **Arguments:**
 - `fileAbsolutePath`
-    - Absolute path to the Excel file
+    - Absolute path to the Excel file, or a path relative to the [workspace directory](#transports)
 
 ### `excel_read_sheet`
 
@@ -94,7 +164,7 @@ Read values from Excel sheet with pagination.
 
 **Arguments:**
 - `fileAbsolutePath`
-    - Absolute path to the Excel file
+    - Absolute path to the Excel file, or a path relative to the [workspace directory](#transports)
 - `sheetName`
     - Sheet name in the Excel file
 - `range`
@@ -110,7 +180,7 @@ Read values from Excel sheet with pagination.
 
 **Arguments:**
 - `fileAbsolutePath`
-    - Absolute path to the Excel file
+    - Absolute path to the Excel file, or a path relative to the [workspace directory](#transports)
 - `sheetName`
     - Sheet name in the Excel file
 - `range`
@@ -122,7 +192,7 @@ Write values to the Excel sheet.
 
 **Arguments:**
 - `fileAbsolutePath`
-    - Absolute path to the Excel file
+    - Absolute path to the Excel file, or a path relative to the [workspace directory](#transports)
 - `sheetName`
     - Sheet name in the Excel file
 - `newSheet`
@@ -131,6 +201,9 @@ Write values to the Excel sheet.
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
 - `values`
     - Values to write to the Excel sheet. If the value is a formula, it should start with "="
+- `attachFile`
+    - Attach the saved workbook to the result as a downloadable binary attachment [default: false]
+    - The result then carries, after the usual HTML, an embedded blob resource: the whole file base64-encoded with the workbook's MIME type, so a client or an agent runtime can offer it as a download instead of a local path. Set it on the last write of a file the caller must be able to download. Files larger than 20 MB are not attached; the write still succeeds and the result says why.
 
 ### `excel_create_table`
 
@@ -138,7 +211,7 @@ Create a table in the Excel sheet
 
 **Arguments:**
 - `fileAbsolutePath`
-    - Absolute path to the Excel file
+    - Absolute path to the Excel file, or a path relative to the [workspace directory](#transports)
 - `sheetName`
     - Sheet name where the table is created
 - `range`
@@ -152,7 +225,7 @@ Copy existing sheet to a new sheet
 
 **Arguments:**
 - `fileAbsolutePath`
-    - Absolute path to the Excel file
+    - Absolute path to the Excel file, or a path relative to the [workspace directory](#transports)
 - `srcSheetName`
     - Source sheet name in the Excel file
 - `dstSheetName`
@@ -164,7 +237,7 @@ Format cells in the Excel sheet with style information
 
 **Arguments:**
 - `fileAbsolutePath`
-    - Absolute path to the Excel file
+    - Absolute path to the Excel file, or a path relative to the [workspace directory](#transports)
 - `sheetName`
     - Sheet name in the Excel file
 - `range`
@@ -186,6 +259,36 @@ You can change the MCP Server behaviors by the following environment variables:
 
 The maximum number of cells to read in a single paging operation.  
 [default: 4000]
+
+### `EXCEL_MCP_TRANSPORT`
+
+The transport to serve: `stdio` or `http` (MCP Streamable HTTP).  
+[default: stdio]
+
+### `EXCEL_MCP_HTTP_ADDR`
+
+The address the HTTP transport listens on.  
+[default: localhost:8000]
+
+### `EXCEL_MCP_HTTP_PATH`
+
+The endpoint path the HTTP transport serves.  
+[default: /mcp]
+
+### `EXCEL_MCP_HTTP_STATELESS`
+
+Serve every HTTP request without a session, for deployments that cannot pin a client to one server instance.  
+[default: false]
+
+### `EXCEL_MCP_WORKSPACE_DIR`
+
+The directory that relative `fileAbsolutePath` arguments resolve inside.  
+[default: `<system temp directory>/excel-mcp-server`]
+
+### `EXCEL_MCP_RESTRICT_TO_WORKSPACE`
+
+Refuse any path outside the workspace directory.  
+[default: true under the `http` transport, false under `stdio`]
 
 ## License
 

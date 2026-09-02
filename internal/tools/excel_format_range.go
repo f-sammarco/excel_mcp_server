@@ -23,7 +23,7 @@ type ExcelFormatRangeArguments struct {
 var colorPattern, _ = regexp.Compile("^#[0-9A-Fa-f]{6}$")
 
 var excelFormatRangeArgumentsSchema = z.Struct(z.Shape{
-	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
+	"fileAbsolutePath": z.String().Test(FilePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"range":            z.String().Required(),
 	"styles": z.Slice(z.Slice(
@@ -59,7 +59,7 @@ func AddExcelFormatRangeTool(server *server.MCPServer) {
 		mcp.WithDescription("Format cells in the Excel sheet with style information"),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
-			mcp.Description("Absolute path to the Excel file"),
+			mcp.Description("Absolute path to the Excel file, or a path relative to the server workspace directory. A relative path is the one to use when the server does not share a filesystem with you."),
 		),
 		mcp.WithString("sheetName",
 			mcp.Required(),
@@ -179,7 +179,11 @@ func handleFormatRange(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return formatRange(args.FileAbsolutePath, args.SheetName, args.Range, args.Styles)
+	filePath, errResult := ResolveFilePath(args.FileAbsolutePath)
+	if errResult != nil {
+		return errResult, nil
+	}
+	return formatRange(filePath, args.SheetName, args.Range, args.Styles)
 }
 
 func formatRange(fileAbsolutePath string, sheetName string, rangeStr string, styles [][]*excel.CellStyle) (*mcp.CallToolResult, error) {

@@ -16,7 +16,7 @@ type ExcelDescribeSheetsArguments struct {
 }
 
 var excelDescribeSheetsArgumentsSchema = z.Struct(z.Shape{
-	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
+	"fileAbsolutePath": z.String().Test(FilePathTest()).Required(),
 })
 
 func AddExcelDescribeSheetsTool(server *server.MCPServer) {
@@ -24,7 +24,7 @@ func AddExcelDescribeSheetsTool(server *server.MCPServer) {
 		mcp.WithDescription("List all sheet information of specified Excel file"),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
-			mcp.Description("Absolute path to the Excel file"),
+			mcp.Description("Absolute path to the Excel file, or a path relative to the server workspace directory. A relative path is the one to use when the server does not share a filesystem with you."),
 		),
 	), handleDescribeSheets)
 }
@@ -35,7 +35,11 @@ func handleDescribeSheets(ctx context.Context, request mcp.CallToolRequest) (*mc
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return describeSheets(args.FileAbsolutePath)
+	filePath, errResult := ResolveFilePath(args.FileAbsolutePath)
+	if errResult != nil {
+		return errResult, nil
+	}
+	return describeSheets(filePath)
 }
 
 type Response struct {

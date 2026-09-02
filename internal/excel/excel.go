@@ -1,6 +1,9 @@
 package excel
 
 import (
+	"errors"
+	"os"
+
 	"github.com/xuri/excelize/v2"
 )
 
@@ -109,6 +112,38 @@ func OpenFile(absoluteFilePath string) (Excel, func(), error) {
 	return excelize, func() {
 		workbook.Close()
 	}, nil
+}
+
+// CreateFile creates a new empty workbook at the given path. The file is only
+// written to disk once Save is called, so a failed write leaves nothing behind.
+// initialSheetName renames the default sheet rather than adding a second one, so
+// a workbook built from scratch has no stray empty "Sheet1".
+func CreateFile(absoluteFilePath string, initialSheetName string) (Excel, func(), error) {
+	workbook := excelize.NewFile()
+	workbook.Path = absoluteFilePath
+	if initialSheetName != "" {
+		defaultSheet := workbook.GetSheetName(0)
+		if defaultSheet != initialSheetName {
+			if err := workbook.SetSheetName(defaultSheet, initialSheetName); err != nil {
+				workbook.Close()
+				return nil, func() {}, err
+			}
+		}
+	}
+	return NewExcelizeExcel(workbook), func() {
+		workbook.Close()
+	}, nil
+}
+
+// OpenOrCreateFile opens an existing workbook, or creates a new one holding a
+// single sheet named initialSheetName when the file does not exist yet.
+func OpenOrCreateFile(absoluteFilePath string, initialSheetName string) (excel Excel, release func(), created bool, err error) {
+	if _, statErr := os.Stat(absoluteFilePath); errors.Is(statErr, os.ErrNotExist) {
+		excel, release, err = CreateFile(absoluteFilePath, initialSheetName)
+		return excel, release, err == nil, err
+	}
+	excel, release, err = OpenFile(absoluteFilePath)
+	return excel, release, false, err
 }
 
 // BorderType represents border direction

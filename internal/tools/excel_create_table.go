@@ -20,7 +20,7 @@ type ExcelCreateTableArguments struct {
 }
 
 var excelCreateTableArgumentsSchema = z.Struct(z.Shape{
-	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
+	"fileAbsolutePath": z.String().Test(FilePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"range":            z.String(),
 	"tableName":        z.String().Required(),
@@ -31,7 +31,7 @@ func AddExcelCreateTableTool(server *server.MCPServer) {
 		mcp.WithDescription("Create a table in the Excel sheet"),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
-			mcp.Description("Absolute path to the Excel file"),
+			mcp.Description("Absolute path to the Excel file, or a path relative to the server workspace directory. A relative path is the one to use when the server does not share a filesystem with you."),
 		),
 		mcp.WithString("sheetName",
 			mcp.Required(),
@@ -52,7 +52,11 @@ func handleCreateTable(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 	if issues := excelCreateTableArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return createTable(args.FileAbsolutePath, args.SheetName, args.Range, args.TableName)
+	filePath, errResult := ResolveFilePath(args.FileAbsolutePath)
+	if errResult != nil {
+		return errResult, nil
+	}
+	return createTable(filePath, args.SheetName, args.Range, args.TableName)
 }
 
 func createTable(fileAbsolutePath string, sheetName string, tableRange string, tableName string) (*mcp.CallToolResult, error) {
