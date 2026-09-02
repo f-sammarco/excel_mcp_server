@@ -70,16 +70,35 @@ For other platforms:
 }
 ```
 
+Both configurations launch the server over stdio. To run it as a long-lived HTTP server instead, start it yourself and point the client at the URL:
+
+```bash
+EXCEL_MCP_TRANSPORT=http npx --yes @negokaz/excel-mcp-server
+```
+
+```json
+{
+    "mcpServers": {
+        "excel": {
+            "url": "http://localhost:8000/mcp"
+        }
+    }
+}
+```
+
+See [Transports](#transports) for the addressing and file path rules that come with it.
+
 ### Installing via Docker
 
-Build the image from the repository:
+Build the image from the repository. It compiles the server from the checked-out source, so the image matches this tree:
 
 ```bash
 docker build -t excel-mcp-server .
 ```
 
-Then add the following configuration to the MCP servers configuration.
-Mount the directory containing your Excel files so the server can access them:
+#### Over stdio
+
+Add the following configuration to the MCP servers configuration. Mount the directory holding your Excel files, using the same path inside and outside the container so `fileAbsolutePath` arguments resolve:
 
 ```json
 {
@@ -88,19 +107,49 @@ Mount the directory containing your Excel files so the server can access them:
             "command": "docker",
             "args": [
                 "run", "--rm", "-i",
+                "--user", "1000:1000",
                 "-v", "/path/to/excel/files:/path/to/excel/files",
-                "-e", "EXCEL_MCP_PAGING_CELLS_LIMIT",
+                "-e", "EXCEL_MCP_TRANSPORT=stdio",
+                "-e", "EXCEL_MCP_PAGING_CELLS_LIMIT=4000",
                 "excel-mcp-server"
-            ],
-            "env": {
-                "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
-            }
+            ]
         }
     }
 }
 ```
 
-Use the same path inside and outside the container so `fileAbsolutePath` arguments resolve.
+The container runs as a non-root user, so mounted files have to be readable and writable by it: pass `--user` with your own uid and gid (`id -u`, `id -g`) as above.
+
+#### Over HTTP
+
+No mount is needed: the client names paths relative to the container's workspace directory (`/workspace`) and takes the results back as attachments.
+
+```bash
+docker run --rm -p 8000:8000 \
+    -e EXCEL_MCP_TRANSPORT=http \
+    excel-mcp-server
+```
+
+```json
+{
+    "mcpServers": {
+        "excel": {
+            "url": "http://localhost:8000/mcp"
+        }
+    }
+}
+```
+
+The workspace directory lives in the container's own filesystem, so it is gone when the container is. Mount a volume over it to keep what lands there:
+
+```bash
+docker run --rm -p 8000:8000 \
+    -e EXCEL_MCP_TRANSPORT=http \
+    -v excel-mcp-workspace:/workspace \
+    excel-mcp-server
+```
+
+The image sets `EXCEL_MCP_HTTP_ADDR=0.0.0.0:8000`, since the default loopback address would be unreachable from outside the container. Publishing that port therefore exposes an unauthenticated server: bind it to loopback on the host (`-p 127.0.0.1:8000:8000`) or put an authenticating proxy in front of it.
 
 > [!NOTE]
 > The Docker image is Linux-based, so Windows-only features (live editing, screen capture) are not available.
