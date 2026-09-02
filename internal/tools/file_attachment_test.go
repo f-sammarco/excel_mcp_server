@@ -32,9 +32,9 @@ func findBlob(content []mcp.Content) *mcp.BlobResourceContents {
 	return nil
 }
 
-func TestWriteSheetAttachesTheWorkbook(t *testing.T) {
+func TestExportFileAttachesTheWorkbook(t *testing.T) {
 	path := newWorkbook(t, "book.xlsx")
-	result, err := writeSheet(path, "Sheet1", false, "A1:B1", [][]any{{"a", "b"}}, true)
+	result, err := exportFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,26 +58,49 @@ func TestWriteSheetAttachesTheWorkbook(t *testing.T) {
 	}
 }
 
-func TestWriteSheetWithoutAttachFileReturnsTextOnly(t *testing.T) {
+func TestWriteSheetDoesNotAttachTheWorkbook(t *testing.T) {
 	path := newWorkbook(t, "book.xlsx")
-	result, err := writeSheet(path, "Sheet1", false, "A1:B1", [][]any{{"a", "b"}}, false)
+	result, err := writeSheet(path, "Sheet1", false, "A1:B1", [][]any{{"a", "b"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if blob := findBlob(result.Content); blob != nil {
-		t.Error("a blob was attached even though attachFile was false")
+		t.Error("a write attached a blob; only excel_export_file may")
 	}
 }
 
-func TestAttachWorkbookFileKeepsTheResultWhenItCannotAttach(t *testing.T) {
-	result := AttachWorkbookFile(mcp.NewToolResultText("written"), "/tmp/data.csv")
+func TestExportFileSeesEveryEditMadeBeforeIt(t *testing.T) {
+	path := newWorkbook(t, "book.xlsx")
+	if _, err := writeSheet(path, "Sheet1", false, "A1:B1", [][]any{{"a", "b"}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := exportFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob := findBlob(result.Content)
+	if blob == nil {
+		t.Fatalf("no blob resource in result: %#v", result.Content)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(blob.Blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded) != len(onDisk) {
+		t.Errorf("blob is %d bytes, the file on disk is %d bytes", len(decoded), len(onDisk))
+	}
+}
+
+func TestExportFileFailsWhenItCannotAttach(t *testing.T) {
+	result := AttachWorkbookFile(mcp.NewToolResultText("exported"), "/tmp/data.csv")
 	if findBlob(result.Content) != nil {
 		t.Error("a non-Excel extension was attached")
 	}
-	if result.IsError {
-		t.Error("a failed attachment must not turn a successful write into an error")
-	}
-	if len(result.Content) < 2 {
-		t.Error("expected a notice explaining why nothing was attached")
+	if !result.IsError {
+		t.Error("an export that attached nothing must be an error, not a silent success")
 	}
 }

@@ -192,7 +192,7 @@ The server then serves one endpoint (`/mcp` by default) handling `POST` for requ
 Over stdio the client and the server share a filesystem, so `fileAbsolutePath` means the same thing on both sides. Over HTTP it does not, so the server keeps a **workspace directory** — a temporary folder it owns (`<temp>/excel-mcp-server` unless `EXCEL_MCP_WORKSPACE_DIR` says otherwise):
 
 - A **relative** path is resolved inside the workspace directory, and missing parent directories are created. This works on every transport, and it is the only kind of path a remote client can name safely.
-- Writing to a path that does not exist yet **creates the workbook**, so a client can build one from scratch — `excel_write_to_sheet` with a relative path and `attachFile: true` writes into the workspace and hands the file back as a download, with no shared filesystem involved.
+- Writing to a path that does not exist yet **creates the workbook**, so a client can build one from scratch — `excel_write_to_sheet` with a relative path writes into the workspace, and `excel_export_file` hands the finished file back as a download, with no shared filesystem involved.
 - An **absolute** path outside the workspace is refused under the HTTP transport, and accepted under stdio. `EXCEL_MCP_RESTRICT_TO_WORKSPACE` overrides that default in either direction.
 
 The workspace is a temporary directory: treat what it holds as scratch, and take the results out as attachments.
@@ -250,9 +250,20 @@ Write values to the Excel sheet.
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
 - `values`
     - Values to write to the Excel sheet. If the value is a formula, it should start with "="
-- `attachFile`
-    - Attach the saved workbook to the result as a downloadable binary attachment [default: false]
-    - The result then carries, after the usual HTML, an embedded blob resource: the whole file base64-encoded with the workbook's MIME type, so a client or an agent runtime can offer it as a download instead of a local path. Set it on the last write of a file the caller must be able to download. Files larger than 20 MB are not attached; the write still succeeds and the result says why.
+
+### `excel_export_file`
+
+Export a saved Excel file as a downloadable binary attachment.
+
+Every other tool leaves the workbook on the server's filesystem — inside the [workspace directory](#transports) when the caller named a relative path. This tool is the way back out: it reads the saved file and returns, after the usual HTML, an embedded blob resource carrying the whole file base64-encoded with the workbook's MIME type, so a client or an agent runtime can offer it as a download instead of a local path.
+
+Call it **once, as the last step**, after every edit to a workbook the caller must be able to download. It is a separate call rather than a flag on a write because a workbook is finished by whatever tool happens to come last — a format, a table, a copy — and no writer can know it was the final one; exporting explicitly also guarantees the bytes handed over include every later edit.
+
+Files larger than 20 MB are not attached and the call returns an error: the workbook is still on disk, it just cannot ride inside a JSON-RPC response.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file, or a path relative to the [workspace directory](#transports)
 
 ### `excel_create_table`
 
