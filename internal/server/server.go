@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -18,11 +19,14 @@ const (
 	EnvHTTPAddr = "EXCEL_MCP_HTTP_ADDR"
 	// EnvHTTPPath is the endpoint path the HTTP transport serves.
 	EnvHTTPPath = "EXCEL_MCP_HTTP_PATH"
+	// EnvHTTPHealthPath is the path serving the liveness/readiness endpoint.
+	EnvHTTPHealthPath = "EXCEL_MCP_HTTP_HEALTH_PATH"
 	// EnvHTTPStateless serves every request without a session when true.
 	EnvHTTPStateless = "EXCEL_MCP_HTTP_STATELESS"
 
-	defaultHTTPAddr = "localhost:8000"
-	defaultHTTPPath = "/mcp"
+	defaultHTTPAddr       = "localhost:8000"
+	defaultHTTPPath       = "/mcp"
+	defaultHTTPHealthPath = "/healthz"
 )
 
 type ExcelServer struct {
@@ -71,23 +75,50 @@ func (s *ExcelServer) startStreamableHTTP() error {
 	if addr == "" {
 		addr = defaultHTTPAddr
 	}
-	path := strings.TrimSpace(os.Getenv(EnvHTTPPath))
-	if path == "" {
-		path = defaultHTTPPath
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
+	path := normalizePath(os.Getenv(EnvHTTPPath), defaultHTTPPath)
 
 	options := []server.StreamableHTTPOption{server.WithEndpointPath(path)}
 	if isTrue(os.Getenv(EnvHTTPStateless)) {
 		options = append(options, server.WithStateLess(true))
 	}
 
+	healthPath := normalizePath(os.Getenv(EnvHTTPHealthPath), defaultHTTPHealthPath)
+
 	httpServer := server.NewStreamableHTTPServer(s.server, options...)
-	fmt.Fprintf(os.Stderr, "excel-mcp-server listening on http://%s%s (workspace: %s, restricted: %t)\n",
-		addr, path, workspace.Dir(), workspace.Restricted())
-	return httpServer.Start(addr)
+
+	// The MCP endpoint rejects a bare GET (it expects a POST, or a GET carrying a
+	// session), so it cannot double as a health check: an orchestrator probing it
+	// reads the 4xx as a dead container and restarts the pod. Serve a separate
+	// endpoint that only reports the process is listening.
+	mux := http.NewServeMux()
+	// Registering the same pattern twice panics, and the MCP endpoint wins the
+	// collision: it is the one the transport cannot do without.
+	if healthPath == path {
+		return fmt.Errorf("%s and %s must differ (both are %q)", EnvHTTPHealthPath, EnvHTTPPath, path)
+	}
+	mux.HandleFunc(healthPath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.Handle(path, httpServer)
+
+	fmt.Fprintf(os.Stderr, "excel-mcp-server listening on http://%s%s (health: %s, workspace: %s, restricted: %t)\n",
+		addr, path, healthPath, workspace.Dir(), workspace.Restricted())
+	return http.ListenAndServe(addr, mux)
+}
+
+// normalizePath falls back to fallback when value is blank and makes the result
+// rooted, since http.ServeMux only accepts patterns starting with "/".
+func normalizePath(value string, fallback string) string {
+	path := strings.TrimSpace(value)
+	if path == "" {
+		path = fallback
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return path
 }
 
 func isTrue(value string) bool {
