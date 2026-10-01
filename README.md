@@ -303,7 +303,7 @@ Format cells in the Excel sheet with style information
 - `range`
     - Range of cells in the Excel sheet (e.g., "A1:C3")
 - `styles`
-    - 2D array of style objects for each cell. If a cell does not change style, use null. The number of items of the array must match the range size.
+    - Rectangular, row-major 2D array with one row per row in the range and one entry per column. For `A1:C3`, provide 3 rows with 3 entries each. Use `null` for cells whose styles should not change.
     - Style object properties:
         - `border`: Array of border styles (type, color, style)
         - `font`: Font styling (bold, italic, underline, size, strike, color, vertAlign)

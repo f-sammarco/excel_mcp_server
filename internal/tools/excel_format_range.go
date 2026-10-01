@@ -56,7 +56,7 @@ var excelFormatRangeArgumentsSchema = z.Struct(z.Shape{
 
 func AddExcelFormatRangeTool(server *server.MCPServer) {
 	server.AddTool(mcp.NewTool("excel_format_range",
-		mcp.WithDescription("Format cells in the Excel sheet with style information"),
+		mcp.WithDescription("Format cells in the Excel sheet with style information. styles must be a rectangular, row-major 2D array: one row per range row and one entry per range column. For range A1:C3, provide 3 rows with 3 entries each. Use null for cells whose styles should not change."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file, or a path relative to the server workspace directory. A relative path is the one to use when the server does not share a filesystem with you."),
@@ -71,7 +71,7 @@ func AddExcelFormatRangeTool(server *server.MCPServer) {
 		),
 		mcp.WithArray("styles",
 			mcp.Required(),
-			mcp.Description("2D array of style objects for each cell. If a cell does not change style, use null. The number of items of the array must match the range size."),
+			mcp.Description("Rectangular, row-major 2D array with one row per row in range and one entry per column in range. For range A1:C3, provide 3 rows with 3 entries each. Use null for cells whose styles should not change."),
 			mcp.Items(map[string]any{
 				"type": "array",
 				"items": map[string]any{
@@ -200,8 +200,9 @@ func formatRange(fileAbsolutePath string, sheetName string, rangeStr string, sty
 
 	// Check data consistency
 	rangeRowSize := endRow - startRow + 1
+	rangeColumnSize := endCol - startCol + 1
 	if len(styles) != rangeRowSize {
-		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of style rows (%d) does not match range size (%d)", len(styles), rangeRowSize)), nil
+		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("styles has %d rows, but range %s is %d rows x %d columns; provide a styles matrix with exactly %d rows and %d columns", len(styles), rangeStr, rangeRowSize, rangeColumnSize, rangeRowSize, rangeColumnSize)), nil
 	}
 
 	// Get worksheet
@@ -213,9 +214,8 @@ func formatRange(fileAbsolutePath string, sheetName string, rangeStr string, sty
 
 	// Apply styles to each cell
 	for i, styleRow := range styles {
-		rangeColumnSize := endCol - startCol + 1
 		if len(styleRow) != rangeColumnSize {
-			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of style columns in row %d (%d) does not match range size (%d)", i, len(styleRow), rangeColumnSize)), nil
+			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("styles row %d has %d columns, but range %s is %d rows x %d columns; provide a styles matrix with exactly %d rows and %d columns", i, len(styleRow), rangeStr, rangeRowSize, rangeColumnSize, rangeRowSize, rangeColumnSize)), nil
 		}
 
 		for j, style := range styleRow {
