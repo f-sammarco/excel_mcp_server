@@ -21,7 +21,7 @@ RUN adduser -D -u 10001 excel
 # client that does not share this container's filesystem writes its workbooks.
 # Mount a volume over it to keep what lands there.
 ENV EXCEL_MCP_WORKSPACE_DIR=/workspace
-RUN mkdir -p /workspace && chown excel:excel /workspace
+RUN mkdir -p /workspace && chown excel:excel /workspace && chmod 1777 /workspace
 
 # Loopback is the right default for a local process, but inside a container it
 # would make the HTTP transport unreachable from the host.
