@@ -20,8 +20,8 @@ RUN adduser -D -u 10001 excel
 # Relative file paths resolve inside the workspace directory, which is where a
 # client that does not share this container's filesystem writes its workbooks.
 # Mount a volume over it to keep what lands there.
-ENV EXCEL_MCP_WORKSPACE_DIR=/workspace
-RUN mkdir -p /workspace && chown excel:excel /workspace && chmod 1777 /workspace
+ENV EXCEL_MCP_WORKSPACE_DIR=/tmp/workspace
+RUN mkdir -p /tmp/workspace && chown excel:excel /tmp/workspace && chmod 1777 /tmp/workspace
 
 # Loopback is the right default for a local process, but inside a container it
 # would make the HTTP transport unreachable from the host.
@@ -31,6 +31,6 @@ EXPOSE 8000
 COPY --from=build /out/excel-mcp-server /usr/local/bin/excel-mcp-server
 
 USER excel
-WORKDIR /workspace
+WORKDIR /tmp
 
 ENTRYPOINT ["excel-mcp-server"]

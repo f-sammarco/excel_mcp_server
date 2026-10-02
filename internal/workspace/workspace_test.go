@@ -115,3 +115,14 @@ func TestSiblingPrefixIsNotWithinWorkspace(t *testing.T) {
 		t.Fatal("Resolve accepted a sibling directory sharing the workspace name prefix")
 	}
 }
+
+func TestDefaultWorkspaceUsesTemporaryDirectory(t *testing.T) {
+	temporaryRoot := t.TempDir()
+	t.Setenv(EnvDir, "")
+	t.Setenv("TMPDIR", temporaryRoot)
+	resetForTest()
+	t.Cleanup(resetForTest)
+	if actual, expected := Dir(), filepath.Join(temporaryRoot, "workspace"); actual != expected {
+		t.Fatalf("workspace = %q, expected %q", actual, expected)
+	}
+}

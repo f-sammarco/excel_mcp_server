@@ -122,7 +122,7 @@ The container runs as a non-root user, so mounted files have to be readable and 
 
 #### Over HTTP
 
-No mount is needed: the client names paths relative to the container's workspace directory (`/workspace`) and takes the results back as attachments.
+No mount is needed: the client names paths relative to the container's workspace directory (`/tmp/workspace`) and takes the results back as attachments.
 
 ```bash
 docker run --rm -p 8000:8000 \
@@ -145,7 +145,7 @@ The workspace directory lives in the container's own filesystem, so it is gone w
 ```bash
 docker run --rm -p 8000:8000 \
     -e EXCEL_MCP_TRANSPORT=http \
-    -v excel-mcp-workspace:/workspace \
+    -v excel-mcp-workspace:/tmp/workspace \
     excel-mcp-server
 ```
 
@@ -189,13 +189,13 @@ The server then serves one endpoint (`/mcp` by default) handling `POST` for requ
 
 ### File paths over HTTP
 
-Over stdio the client and the server share a filesystem, so `fileAbsolutePath` means the same thing on both sides. Over HTTP it does not, so the server keeps a **workspace directory** — a temporary folder it owns (`<temp>/excel-mcp-server` unless `EXCEL_MCP_WORKSPACE_DIR` says otherwise):
+Over stdio the client and the server share a filesystem, so `fileAbsolutePath` means the same thing on both sides. Over HTTP it does not, so the server keeps a **workspace directory** — a temporary folder it owns (`<temp>/workspace` unless `EXCEL_MCP_WORKSPACE_DIR` says otherwise):
 
 - A **relative** path is resolved inside the workspace directory, and missing parent directories are created. This works on every transport, and it is the only kind of path a remote client can name safely.
 - Writing to a path that does not exist yet **creates the workbook**, so a client can build one from scratch — `excel_write_to_sheet` with a relative path writes into the workspace, and `excel_export_file` hands the finished file back as a download, with no shared filesystem involved.
 - An **absolute** path outside the workspace is refused under the HTTP transport, and accepted under stdio. `EXCEL_MCP_RESTRICT_TO_WORKSPACE` overrides that default in either direction.
 
-The workspace is a temporary directory: treat what it holds as scratch, and take the results out as attachments.
+The workspace defaults to `/tmp/workspace` on Linux and in the image. On Kubernetes, mount writable temporary storage at `/tmp`; the server creates its workspace inside it. The workspace is a temporary directory: treat what it holds as scratch, and take the results out as attachments.
 
 <h2 id="tools">Tools</h2>
 
@@ -343,7 +343,7 @@ Serve every HTTP request without a session, for deployments that cannot pin a cl
 ### `EXCEL_MCP_WORKSPACE_DIR`
 
 The directory that relative `fileAbsolutePath` arguments resolve inside.  
-[default: `<system temp directory>/excel-mcp-server`]
+[default: `<system temp directory>/workspace`]
 
 ### `EXCEL_MCP_RESTRICT_TO_WORKSPACE`
 

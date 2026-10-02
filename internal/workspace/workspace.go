@@ -28,7 +28,7 @@ const (
 	// EnvTransport is read only to pick the default for EnvRestrict.
 	EnvTransport = "EXCEL_MCP_TRANSPORT"
 
-	defaultDirName = "excel-mcp-server"
+	defaultDirName = "workspace"
 )
 
 var (

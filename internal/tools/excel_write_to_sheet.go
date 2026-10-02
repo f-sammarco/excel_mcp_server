@@ -13,11 +13,10 @@ import (
 )
 
 type ExcelWriteToSheetArguments struct {
-	FileAbsolutePath string     `zog:"fileAbsolutePath"`
-	SheetName        string     `zog:"sheetName"`
-	NewSheet         bool       `zog:"newSheet"`
-	Range            string     `zog:"range"`
-	Values           [][]string `zog:"values"`
+	FileAbsolutePath string `zog:"fileAbsolutePath"`
+	SheetName        string `zog:"sheetName"`
+	NewSheet         bool   `zog:"newSheet"`
+	Range            string `zog:"range"`
 }
 
 var excelWriteToSheetArgumentsSchema = z.Struct(z.Shape{
@@ -25,7 +24,6 @@ var excelWriteToSheetArgumentsSchema = z.Struct(z.Shape{
 	"sheetName":        z.String().Required(),
 	"newSheet":         z.Bool().Required().Default(false),
 	"range":            z.String().Required(),
-	"values":           z.Slice(z.Slice(z.String())).Required(),
 })
 
 func AddExcelWriteToSheetTool(server *server.MCPServer) {
@@ -80,18 +78,24 @@ func handleWriteToSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
 
-	// zog が any type のスキーマをサポートしていないため、自力で実装
-	valuesArg, ok := request.GetArguments()["values"].([]any)
+	valuesArgument, ok := request.GetArguments()["values"].([]any)
 	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("values must be a 2D array"), nil
+		return imcp.NewToolResultInvalidArgumentError(invalidValuesShapeMessage), nil
 	}
-	values := make([][]any, len(valuesArg))
-	for i, v := range valuesArg {
-		value, ok := v.([]any)
+	values := make([][]any, len(valuesArgument))
+	for rowIndex, rowArgument := range valuesArgument {
+		row, ok := rowArgument.([]any)
 		if !ok {
-			return imcp.NewToolResultInvalidArgumentError("values must be a 2D array"), nil
+			return imcp.NewToolResultInvalidArgumentError(invalidValuesShapeMessage), nil
 		}
-		values[i] = value
+		for _, cellValue := range row {
+			switch cellValue.(type) {
+			case string, float64, bool, nil:
+			default:
+				return imcp.NewToolResultInvalidArgumentError(invalidCellValueMessage), nil
+			}
+		}
+		values[rowIndex] = row
 	}
 
 	filePath, errResult := ResolveFilePath(args.FileAbsolutePath)

@@ -5,6 +5,11 @@ import (
 	"github.com/Oudwins/zog/zenv"
 )
 
+const (
+	invalidValuesShapeMessage = "values must be a 2D array"
+	invalidCellValueMessage   = "cell values must be strings, numbers, booleans, or null"
+)
+
 type EnvConfig struct {
 	EXCEL_MCP_PAGING_CELLS_LIMIT int
 }
